@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  # On connecte le backend au Service de la base de données (mysql-service)
+  SPRING_DATASOURCE_URL: "jdbc:mysql://mysql-service:3306/travelo_db?useSSL=false&allowPublicKeyRetrieval=true"
+  SPRING_DATASOURCE_USERNAME: "travelo"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secret
+type: Opaque
+data:
+  # Le mot de passe doit correspondre à celui de la base de données ("travelopassword" en base64)
+  SPRING_DATASOURCE_PASSWORD: dHJhdmVsb3Bhc3N3b3Jk
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+spec:
+  replicas: 2 # 2 réplicas
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: travelo_backend:latest
+          # TRÈS IMPORTANT sous Docker Desktop : empêche K8s de chercher sur Docker Hub
+          imagePullPolicy: IfNotPresent 
+          ports:
+            - containerPort: 8089 # Le port dans application.properties
+          
+          # Injection des variables
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secret
+          
+          # Quotas de ressources (Exigence III.3.b)
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+          # Les 3 Probes (Exigence III.3.e)
+          # On utilise des probes TCP pour éviter les problèmes si l'endpoint /actuator/health n'est pas exposé
+          startupProbe:
+            tcpSocket:
+              port: 8089
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 30 # Laisse jusqu'à 5 minutes (30*10s) au backend pour démarrer (Spring Boot est lent)
+          
+          readinessProbe:
+            tcpSocket:
+              port: 8089
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          
+          livenessProbe:
+            tcpSocket:
+              port: 8089
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8089
+      targetPort: 8089

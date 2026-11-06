@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+spec:
+  replicas: 2 # 2 réplicas
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: travelo_frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000 # Port de nginx.conf, comme nginx est user alors il est non priviligé à écouter les ports < 1024 donc on a choisit 3000
+          
+          # Quotas de ressources
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+
+          # Les 3 Probes (Exigence III.3.e) le Frontend sur le port 3000
+          startupProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 10
+          
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80       # Le service écoute sur le port standard 80
+      targetPort: 3000 # Mais redirige vers le port 3000 du conteneur
+  type: ClusterIP
